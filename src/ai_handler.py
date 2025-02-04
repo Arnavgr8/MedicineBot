@@ -13,9 +13,11 @@ class AIHandler:
         
         # Show only first 5 products to avoid too long messages
         for product in products[:5]:
-            response += f"• {product['name']}\n"
-            response += f"  Price: ${product['price']:.2f}\n"
-            response += f"  {product['description']}\n\n"
+            if product['quantity'] > 0:  # Only show products with stock
+                response += f"• {product['name']}\n"
+                response += f"  Price: ${product['price']:.2f}\n"
+                response += f"  Stock: {product['quantity']} units\n"
+                response += f"  {product['description']}\n\n"
             
         if len(products) > 5:
             response += f"\n...and {len(products) - 5} more products."

@@ -4,6 +4,11 @@ from typing import List, Dict, Optional
 class ProductDB:
     def __init__(self, csv_path: str):
         self.df = pd.read_csv(csv_path)
+        # Add quantity column if it doesn't exist
+        if 'quantity' not in self.df.columns:
+            self.df['quantity'] = 100  # Default quantity for existing products
+        print("Columns after adding quantity:", self.df.columns.tolist())  # Debug print
+        print("Sample quantities:", self.df['quantity'].head())  # Show first few quantities
         # Print column names to debug
         print("Available columns:", self.df.columns.tolist())
         # Clean data in text columns
@@ -47,7 +52,8 @@ class ProductDB:
                     'category': row['type'],
                     'manufacturer': row['manufacturer_name'],
                     'package_size': row['pack_size_label'],
-                    'salt': composition
+                    'salt': composition,
+                    'quantity': row['quantity']
                 })
             
             # Sort results by relevance (exact matches first)
@@ -81,7 +87,8 @@ class ProductDB:
                     'category': row['type'],
                     'manufacturer': row['manufacturer_name'],
                     'package_size': row['pack_size_label'],
-                    'salt': composition
+                    'salt': composition,
+                    'quantity': row['quantity']
                 }
             return None
         except Exception as e:
