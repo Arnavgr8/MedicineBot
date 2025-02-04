@@ -8,6 +8,7 @@ import logging
 import sys
 import csv
 from datetime import datetime
+import pandas as pd
 
 # Set up logging - reduce verbosity
 logging.basicConfig(
@@ -18,20 +19,37 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-def get_application_path():
+def get_base_path():
+    """Get the base path of the application"""
     if getattr(sys, 'frozen', False):
         # If running as exe
-        base_path = os.path.dirname(os.path.dirname(sys.executable))
+        return os.path.dirname(os.path.dirname(sys.executable))
     else:
         # If running as script
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    
-    # Construct path to the CSV file in the data directory
-    data_path = os.path.join(base_path, 'data', os.getenv('dataset_path'))
-    return data_path
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Get paths
+base_path = get_base_path()
+csv_path = os.path.join(base_path, 'data', os.getenv('dataset_path'))
+orders_path = os.path.join(base_path, 'data', 'orders.csv')
+
+def create_orders_csv():
+    """Create orders.csv if it doesn't exist"""
+    if not os.path.exists(orders_path):
+        os.makedirs(os.path.dirname(orders_path), exist_ok=True)
+        with open(orders_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'order_id', 'user_id', 'user_name', 'medicine_name', 
+                'quantity', 'price_per_unit', 'total_price', 'order_date', 
+                'status', 'delivery_address'
+            ])
+        logger.info(f"Created orders.csv at {orders_path}")
+
+# Create orders.csv if needed
+create_orders_csv()
 
 # Initialize our handlers
-csv_path = get_application_path()
 product_db = ProductDB(csv_path)
 ai_handler = AIHandler()
 
@@ -84,11 +102,66 @@ async def search_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Search medicines based on user message."""
     query = update.message.text.lower()
     
+    # Handle address input if we're waiting for it
+    if context.user_data.get('awaiting_address'):
+        address = update.message.text
+        cart = context.user_data.get('cart', [])
+        
+        # Generate order ID
+        order_id = f"ORD_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{update.message.from_user.id}"
+        
+        # Save order with address
+        orders_df = pd.read_csv(orders_path)
+        
+        new_orders = []
+        for item in cart:
+            new_orders.append({
+                'order_id': order_id,
+                'user_id': update.message.from_user.id,
+                'user_name': update.message.from_user.full_name,
+                'medicine_name': item['name'],
+                'quantity': item['quantity'],
+                'price_per_unit': item['price'],
+                'total_price': item['quantity'] * item['price'],
+                'order_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'status': 'pending',
+                'delivery_address': address
+            })
+            
+            # Update stock
+            product_db.df.loc[product_db.df['name'] == item['name'], 'quantity'] -= item['quantity']
+        
+        # Update CSVs
+        new_orders_df = pd.DataFrame(new_orders)
+        updated_orders = pd.concat([orders_df, new_orders_df], ignore_index=True)
+        updated_orders.to_csv(orders_path, index=False)
+        product_db.df.to_csv(csv_path, index=False)
+        
+        # Clear cart and address flag
+        context.user_data['cart'] = []
+        context.user_data['awaiting_address'] = False
+        
+        # Send confirmation
+        total = sum(item['quantity'] * item['price'] for item in cart)
+        await update.message.reply_text(
+            f"✅ Order placed successfully!\n\n"
+            f"Order ID: {order_id}\n"
+            f"Total Amount: ₹{total:.2f}\n"
+            f"Delivery Address: {address}\n\n"
+            "Your order will be delivered to the provided address.\n"
+            "Search for another medicine to place a new order."
+        )
+        return
+    
+    # Continue with normal search if not waiting for address
+    logger.info(f"Received query: {query}")
+    
     try:
         # Search for medicines
         products = product_db.search_products(query)
         # Filter out products with zero quantity
         products = [p for p in products if p['quantity'] > 0]
+        logger.info(f"Found {len(products)} medicines")
         
         if not products:
             await update.message.reply_text(
@@ -140,6 +213,17 @@ async def search_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button clicks for medicine details."""
     query = update.callback_query
+    await query.answer()
+    
+    if query.data == "checkout":
+        # Ask for delivery address when user clicks "Place Order"
+        await query.edit_message_text(
+            text="Please enter your delivery address:\n\n"
+                 "(Include complete address with landmark and PIN code)"
+        )
+        context.user_data['awaiting_address'] = True
+        return
+    
     try:
         if query.data.startswith("med_"):
             idx = int(query.data.split("_")[1])
@@ -247,8 +331,6 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         elif query.data == "place_order":
             await process_order(update, context)
-            
-        await query.answer()
         
     except Exception as e:
         logger.error(f"Error handling button click: {str(e)}")
@@ -284,67 +366,21 @@ async def show_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def process_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process and save order to CSV"""
-    if 'cart' not in context.user_data or not context.user_data['cart']:
-        await update.effective_message.reply_text("Your cart is empty!")
+    """Process the order and ask for delivery address."""
+    query = update.callback_query
+    await query.answer()
+    
+    cart = context.user_data.get('cart', [])
+    if not cart:
+        await query.edit_message_text("Your cart is empty!")
         return
         
-    try:
-        # Get order details
-        cart = context.user_data['cart']
-        user = update.effective_user
-        
-        # Generate unique order ID with microseconds for better uniqueness
-        order_id = f"ORD_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{user.id}"
-        total = sum(item['price'] * item['quantity'] for item in cart)
-        
-        # Prepare orders.csv path
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        orders_path = os.path.join(base_path, 'data', 'orders.csv')
-        
-        # Check if file exists and create with headers if it doesn't
-        file_exists = os.path.isfile(orders_path)
-        
-        with open(orders_path, 'a', newline='') as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow([
-                    'order_id', 'user_id', 'user_name', 'medicine_name', 
-                    'quantity', 'price_per_unit', 'total_price', 'order_date'
-                ])
-            
-            # Write each item in cart as a separate row with its own order ID
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            for item in cart:
-                writer.writerow([
-                    order_id,
-                    user.id,
-                    user.full_name,
-                    item['name'],
-                    item['quantity'],
-                    item['price'],
-                    round(item['price'] * item['quantity'], 2),  # Round to 2 decimal places
-                    timestamp
-                ])
-        
-        # Clear cart after successful order
-        context.user_data['cart'] = []
-        
-        # Send confirmation message with itemized list
-        confirmation = f"✅ Order placed successfully!\n\nOrder ID: {order_id}\n\nItems:\n"
-        for item in cart:
-            confirmation += f"• {item['quantity']}x {item['name']}\n"
-            confirmation += f"  Subtotal: ₹{item['price'] * item['quantity']:.2f}\n"
-        confirmation += f"\nTotal Amount: ₹{total:.2f}\n\nThank you for your order! 🙏"
-        
-        await update.effective_message.reply_text(confirmation)
-        
-    except Exception as e:
-        logger.error(f"Order processing error: {str(e)}")
-        await update.effective_message.reply_text(
-            "Sorry, there was an error processing your order.\n"
-            "Please try again or contact support."
-        )
+    # Ask for delivery address
+    await query.edit_message_text(
+        text="Please enter your delivery address:\n\n"
+             "(Include complete address with landmark and PIN code)"
+    )
+    context.user_data['awaiting_address'] = True
 
 async def cart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /cart command"""
@@ -370,4 +406,4 @@ def main():
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    main() 
+    main()
