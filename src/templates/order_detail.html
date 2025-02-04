@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Order Details: {{ order_id }}</h2>
+
+{% if delivery_address %}
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">📍 Delivery Address</h5>
+        <p class="card-text">{{ delivery_address }}</p>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-body">
+        <h5 class="card-title">Order Items</h5>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Medicine</th>
+                    <th>Quantity</th>
+                    <th>Price/Unit</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td>{{ item.medicine_name }}</td>
+                    <td>{{ item.quantity }}</td>
+                    <td>₹{{ "%.2f"|format(item.price_per_unit) }}</td>
+                    <td>₹{{ "%.2f"|format(item.total_price) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <div class="mt-3">
+            <form method="POST" action="{{ url_for('update_status', order_id=order_id) }}" class="d-inline">
+                <select name="status" class="form-select d-inline-block w-auto">
+                    <option value="pending" {% if items[0].status == 'pending' %}selected{% endif %}>Pending</option>
+                    <option value="completed" {% if items[0].status == 'completed' %}selected{% endif %}>Completed</option>
+                    <option value="cancelled" {% if items[0].status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                </select>
+                <button type="submit" class="btn btn-primary">Update Status</button>
+            </form>
+            <a href="{{ url_for('orders') }}" class="btn btn-secondary">Back to Orders</a>
+        </div>
+    </div>
+</div>
+{% endblock %} 

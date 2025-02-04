@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Orders</h2>
+
+<!-- Add these in your head section -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
+
+<!-- Replace your filter section with this -->
+<div class="filter-section mb-4">
+    <form method="GET" action="{{ url_for('orders') }}" class="row g-3">
+        <div class="col-md-4">
+            <label for="date" class="form-label">Filter by Date</label>
+            <input type="text" class="form-control" id="date" name="date" 
+                   value="{{ filter_date }}" placeholder="Select date">
+        </div>
+        <div class="col-md-4">
+            <label for="name" class="form-label">Filter by Customer Name</label>
+            <input type="text" class="form-control" id="name" name="name" 
+                   value="{{ filter_name }}" placeholder="Enter customer name">
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">&nbsp;</label>
+            <div>
+                <button type="submit" class="btn btn-primary">Apply Filters</button>
+                <a href="{{ url_for('orders') }}" class="btn btn-secondary">Clear Filters</a>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- Nav tabs -->
+<ul class="nav nav-tabs mb-3" id="orderTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="pending-tab" data-bs-toggle="tab" data-bs-target="#pending" type="button" role="tab">
+            Pending <span class="badge bg-warning">{{ orders_by_status.pending|length }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="completed-tab" data-bs-toggle="tab" data-bs-target="#completed" type="button" role="tab">
+            Completed <span class="badge bg-success">{{ orders_by_status.completed|length }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="cancelled-tab" data-bs-toggle="tab" data-bs-target="#cancelled" type="button" role="tab">
+            Cancelled <span class="badge bg-danger">{{ orders_by_status.cancelled|length }}</span>
+        </button>
+    </li>
+</ul>
+
+<!-- Tab content -->
+<div class="tab-content" id="orderTabsContent">
+    <!-- Pending Orders Tab -->
+    <div class="tab-pane fade show active" id="pending" role="tabpanel">
+        {% if orders_by_status.pending %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Order ID</th>
+                        <th>Customer</th>
+                        <th>Date</th>
+                        <th>Total</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in orders_by_status.pending %}
+                    <tr>
+                        <td><a href="/order/{{ order.order_id }}">{{ order.order_id }}</a></td>
+                        <td>{{ order.user_name }}</td>
+                        <td>{{ order.order_date }}</td>
+                        <td>₹{{ "%.2f"|format(order.total_price) }}</td>
+                        <td>
+                            <form action="/update_status/{{ order.order_id }}" method="POST" class="d-inline">
+                                <input type="hidden" name="status" value="completed">
+                                <button type="submit" class="btn btn-sm btn-success" title="Complete Order">
+                                    ✓
+                                </button>
+                            </form>
+                            <form action="/update_status/{{ order.order_id }}" method="POST" class="d-inline">
+                                <input type="hidden" name="status" value="cancelled">
+                                <button type="submit" class="btn btn-sm btn-danger" title="Cancel Order">
+                                    ✗
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info">No pending orders found.</div>
+        {% endif %}
+    </div>
+
+    <!-- Completed Orders Tab -->
+    <div class="tab-pane fade" id="completed" role="tabpanel">
+        <!-- Profit Summary Card - Only shown in completed tab -->
+        <div class="card mb-4 bg-success text-white">
+            <div class="card-body">
+                <h3 class="card-title">Total Revenue from Completed Orders</h3>
+                <h2 class="display-4">₹{{ "%.2f"|format(total_profit) }}</h2>
+            </div>
+        </div>
+
+        {% if orders_by_status.completed %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Order ID</th>
+                        <th>Customer</th>
+                        <th>Date</th>
+                        <th>Total</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in orders_by_status.completed %}
+                    <tr>
+                        <td><a href="/order/{{ order.order_id }}">{{ order.order_id }}</a></td>
+                        <td>{{ order.user_name }}</td>
+                        <td>{{ order.order_date }}</td>
+                        <td>₹{{ "%.2f"|format(order.total_price) }}</td>
+                        <td>
+                            <form action="/update_status/{{ order.order_id }}" method="POST" class="d-inline">
+                                <select name="status" class="form-select form-select-sm d-inline w-auto">
+                                    <option value="pending" {% if order.status == 'pending' %}selected{% endif %}>Pending</option>
+                                    <option value="completed" {% if order.status == 'completed' %}selected{% endif %}>Completed</option>
+                                    <option value="cancelled" {% if order.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-primary">Update</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info">No completed orders found.</div>
+        {% endif %}
+    </div>
+
+    <!-- Cancelled Orders Tab -->
+    <div class="tab-pane fade" id="cancelled" role="tabpanel">
+        {% if orders_by_status.cancelled %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Order ID</th>
+                        <th>Customer</th>
+                        <th>Date</th>
+                        <th>Total</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for order in orders_by_status.cancelled %}
+                    <tr>
+                        <td><a href="/order/{{ order.order_id }}">{{ order.order_id }}</a></td>
+                        <td>{{ order.user_name }}</td>
+                        <td>{{ order.order_date }}</td>
+                        <td>₹{{ "%.2f"|format(order.total_price) }}</td>
+                        <td>
+                            <form action="/update_status/{{ order.order_id }}" method="POST" class="d-inline">
+                                <select name="status" class="form-select form-select-sm d-inline w-auto">
+                                    <option value="pending" {% if order.status == 'pending' %}selected{% endif %}>Pending</option>
+                                    <option value="completed" {% if order.status == 'completed' %}selected{% endif %}>Completed</option>
+                                    <option value="cancelled" {% if order.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-primary">Update</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info">No cancelled orders found.</div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+/* Make tabs more prominent */
+.nav-tabs .nav-link {
+    color: #495057;
+    font-weight: 500;
+    padding: 12px 20px;
+}
+
+.nav-tabs .nav-link.active {
+    font-weight: 600;
+}
+
+/* Add some spacing */
+.table {
+    margin-top: 1rem;
+}
+
+/* Style badges */
+.badge {
+    margin-left: 5px;
+}
+
+/* Style the tick/cross buttons */
+.btn-success {
+    font-weight: bold;
+    font-size: 1.2em;
+    padding: 0.2em 0.6em;
+}
+
+.btn-danger {
+    font-weight: bold;
+    font-size: 1.2em;
+    padding: 0.2em 0.6em;
+    margin-left: 0.5em;
+}
+</style>
+
+<script>
+// Preserve active tab after form submission
+document.addEventListener('DOMContentLoaded', function() {
+    // Get active tab from localStorage
+    const activeTab = localStorage.getItem('activeOrderTab');
+    if (activeTab) {
+        const tab = document.querySelector(activeTab);
+        if (tab) {
+            const bsTab = new bootstrap.Tab(tab);
+            bsTab.show();
+        }
+    }
+    
+    // Store active tab when changed
+    const tabs = document.querySelectorAll('[data-bs-toggle="tab"]');
+    tabs.forEach(tab => {
+        tab.addEventListener('shown.bs.tab', function(e) {
+            localStorage.setItem('activeOrderTab', '#' + e.target.id);
+        });
+    });
+});
+
+// Initialize date picker
+flatpickr("#date", {
+    dateFormat: "Y-m-d",
+    allowInput: true,
+    altInput: true,
+    altFormat: "F j, Y",
+    maxDate: "today"
+});
+
+// Initialize autocomplete for customer names
+$("#name").autocomplete({
+    source: function(request, response) {
+        $.getJSON("{{ url_for('get_customers') }}", {
+            term: request.term
+        }, response);
+    },
+    minLength: 2,
+    select: function(event, ui) {
+        $("#name").val(ui.item.value);
+        return false;
+    }
+});
+</script>
+{% endblock %} 
